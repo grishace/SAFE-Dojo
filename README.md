@@ -7,6 +7,7 @@ The `master` branch has the "incomplete" solution; please read the [instructions
 ## Prerequisites
 
 * [dotnet SDK 2.1.301](https://github.com/dotnet/cli/releases/tag/v2.1.301) The .NET Core SDK
+* [FAKE 5](https://github.com/fsharp/FAKE) FAKE 5
 * [Yarn](https://yarnpkg.com/lang/en/docs/install/) package manager
 * [Node 8.x](https://nodejs.org/en/download/) installed for the front end components
 * [Mono](https://www.mono-project.com/docs/getting-started/install/) if you're running on Linux or OSX
