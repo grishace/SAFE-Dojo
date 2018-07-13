@@ -1,89 +1,109 @@
-#r @"packages/build/FAKE/tools/FakeLib.dll"
+#r "paket: groupref Build //"
+#load "./.fake/build.fsx/intellisense.fsx"
 
 open System
 
-open Fake
+open Fake.Core
+open Fake.DotNet
+open Fake.IO
 
-let serverPath = "./src/Server" |> FullName
-let clientPath = "./src/Client" |> FullName
-let deployDir = "./deploy" |> FullName
+let serverPath = Path.getFullName "./src/Server"
+let clientPath = Path.getFullName "./src/Client"
+let deployDir = Path.getFullName "./deploy"
 
 let platformTool tool winTool =
-  let tool = if isUnix then tool else winTool
-  tool
-  |> ProcessHelper.tryFindFileOnPath
-  |> function Some t -> t | _ -> failwithf "%s not found" tool
+    let tool = if Environment.isUnix then tool else winTool
+    match Process.tryFindFileOnPath tool with
+    | Some t -> t
+    | _ ->
+        let errorMsg =
+            tool + " was not found in path. " +
+            "Please install it and make sure it's available from your path. " +
+            "See https://safe-stack.github.io/docs/quickstart/#install-pre-requisites for more info"
+        failwith errorMsg
 
 let nodeTool = platformTool "node" "node.exe"
+let yarnTool = platformTool "yarn" "yarn.cmd"
 
-type JsPackageManager = 
-  | NPM
-  | YARN
-  member this.Tool =
-    match this with
-    | NPM -> platformTool "npm" "npm.cmd"
-    | YARN -> platformTool "yarn" "yarn.cmd"
-   member this.ArgsInstall =
-    match this with
-    | NPM -> "install"
-    | YARN -> "install --frozen-lockfile"
+let install = lazy DotNet.install DotNet.Versions.Release_2_1_301
 
-let jsPackageManager = 
-  match getBuildParam "jsPackageManager" with
-  | "npm" -> NPM
-  | "yarn" | _ -> YARN
+let inline withWorkDir wd =
+    DotNet.Options.lift install.Value
+    >> DotNet.Options.withWorkingDirectory wd
 
-let mutable dotnetCli = "dotnet"
+let runTool cmd args workingDir =
+    let result =
+        Process.execSimple (fun info ->
+            { info with
+                FileName = cmd
+                WorkingDirectory = workingDir
+                Arguments = args })
+            TimeSpan.MaxValue
+    if result <> 0 then failwithf "'%s %s' failed" cmd args
 
-let run cmd args workingDir =
-  let result =
-    ExecProcess (fun info ->
-      info.FileName <- cmd
-      info.WorkingDirectory <- workingDir
-      info.Arguments <- args) TimeSpan.MaxValue
-  if result <> 0 then failwithf "'%s %s' failed" cmd args
+let runDotNet cmd workingDir =
+    let result =
+        DotNet.exec (withWorkDir workingDir) cmd ""
+    if result.ExitCode <> 0 then failwithf "'dotnet %s' failed in %s" cmd workingDir
 
-Target "Clean" (fun _ -> 
-  CleanDirs [deployDir]
+let openBrowser url =
+    let result =
+        //https://github.com/dotnet/corefx/issues/10361
+        Process.execSimple (fun info ->
+            { info with
+                FileName = url
+                UseShellExecute = true })
+            TimeSpan.MaxValue
+    if result <> 0 then failwithf "opening browser failed"
+
+Target.create "Clean" (fun _ ->
+    Shell.cleanDirs [deployDir]
 )
 
-Target "InstallClient" (fun _ ->
-  printfn "Node version:"
-  run nodeTool "--version" __SOURCE_DIRECTORY__
-  run jsPackageManager.Tool jsPackageManager.ArgsInstall  __SOURCE_DIRECTORY__
-  run dotnetCli "restore" clientPath
+Target.create "InstallClient" (fun _ ->
+    printfn "Node version:"
+    runTool nodeTool "--version" __SOURCE_DIRECTORY__
+    printfn "Yarn version:"
+    runTool yarnTool "--version" __SOURCE_DIRECTORY__
+    runTool yarnTool "install --frozen-lockfile" __SOURCE_DIRECTORY__
+    runDotNet "restore" clientPath
 )
 
-Target "RestoreServer" (fun () -> 
-  run dotnetCli "restore" serverPath
+Target.create "RestoreServer" (fun _ ->
+    runDotNet "restore" serverPath
 )
 
-Target "Build" (fun () ->
-  run dotnetCli "build" serverPath
-  run dotnetCli "fable webpack -- -p" clientPath
+Target.create "Build" (fun _ ->
+    runDotNet "build" serverPath
+    runDotNet "fable webpack -- -p" clientPath
 )
 
-Target "Run" (fun () ->
-  let server = async { run dotnetCli "watch run" serverPath }
-  let client = async { run dotnetCli "fable webpack-dev-server" clientPath }
-  let browser = async {
-    Threading.Thread.Sleep 5000
-    Diagnostics.Process.Start "http://localhost:8080" |> ignore
-  }
+Target.create "Run" (fun _ ->
+    let server = async {
+        runDotNet "watch run" serverPath
+    }
+    let client = async {
+        runDotNet "fable webpack-dev-server" clientPath
+    }
+    let browser = async {
+        Threading.Thread.Sleep 5000
+        openBrowser "http://localhost:8080"
+    }
 
-  [ server; client; browser]
-  |> Async.Parallel
-  |> Async.RunSynchronously
-  |> ignore
+    [ server; client; browser ]
+    |> Async.Parallel
+    |> Async.RunSynchronously
+    |> ignore
 )
 
+open Fake.Core.TargetOperators
 
 "Clean"
-  ==> "InstallClient"
-  ==> "Build"
+    ==> "InstallClient"
+    ==> "Build"
 
 "InstallClient"
-  ==> "RestoreServer"
-  ==> "Run"
+    ==> "RestoreServer"
+    ==> "Run"
 
-RunTargetOrDefault "Build"
+Target.runOrDefault "Build"

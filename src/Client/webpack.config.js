@@ -1,6 +1,7 @@
 var path = require("path");
 var webpack = require("webpack");
 var fableUtils = require("fable-utils");
+var sassPlugin = require('sass-webpack-plugin');
 
 function resolve(filePath) {
   return path.join(__dirname, filePath)
@@ -64,10 +65,20 @@ module.exports = {
           loader: 'babel-loader',
           options: babelOptions
         },
+      },
+      {
+        test: /\.scss$/,
+        use: [{
+            loader: "style-loader"
+        }, {
+            loader: "css-loader"
+        }, {
+            loader: "sass-loader"
+        }]
       }
     ]
   },
-  plugins : isProduction ? [] : [
+  plugins : isProduction ? [ new sassPlugin('./main.scss') ] : [
       new webpack.HotModuleReplacementPlugin(),
       new webpack.NamedModulesPlugin()
   ]

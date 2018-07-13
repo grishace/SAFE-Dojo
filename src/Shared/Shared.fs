@@ -34,6 +34,8 @@ type WeatherType =
 
 type WeatherResponse = { WeatherType : WeatherType; AverageTemperature : float }
 
+type PostcodeRequest = { postcode : string }
+
 /// Provides validation on data. Shared across both client and server.
 module Validation =
     open System.Text.RegularExpressions
